@@ -1,0 +1,891 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": [],
+      "authorship_tag": "ABX9TyNjJRGMKF+vdJfSmKifdKVZ",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/thobitz/PricingTest/blob/main/CDS\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "!pip install quantlib"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "MmY1tEUTaRpb",
+        "outputId": "b5675eb0-dfa1-49a6-9a37-e6679f79aadc"
+      },
+      "execution_count": 2,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Collecting quantlib\n",
+            "  Downloading quantlib-1.41-cp38-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (1.1 kB)\n",
+            "Downloading quantlib-1.41-cp38-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (20.1 MB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m20.1/20.1 MB\u001b[0m \u001b[31m67.7 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hInstalling collected packages: quantlib\n",
+            "Successfully installed quantlib-1.41\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 3,
+      "metadata": {
+        "id": "67HkkGNraBO-"
+      },
+      "outputs": [],
+      "source": [
+        "import QuantLib as ql\n",
+        "import pandas as pd"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "today = ql.Date(27, ql.August, 2025)\n",
+        "ql.Settings.instance().evaluationDate = today"
+      ],
+      "metadata": {
+        "id": "rCQg2zZOaNAK"
+      },
+      "execution_count": 4,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "bps = 1e-4"
+      ],
+      "metadata": {
+        "id": "_RcqBWZvabDz"
+      },
+      "execution_count": 5,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "cds_data = [\n",
+        "    (ql.Period(1, ql.Years), -0.002),\n",
+        "    (ql.Period(2, ql.Years), -0.005),\n",
+        "    (ql.Period(3, ql.Years), -0.008),\n",
+        "    (ql.Period(5, ql.Years), -0.004),\n",
+        "    (ql.Period(7, ql.Years), 0.007),\n",
+        "    (ql.Period(10, ql.Years), 0.011),\n",
+        "]\n",
+        "\n",
+        "cds_spread = 100 * bps\n",
+        "recovery_rate = 0.4\n",
+        "cds_settlement_days = 1\n",
+        "upfront_settlement_days = 3\n",
+        "\n",
+        "calendar = ql.UnitedStates(ql.UnitedStates.GovernmentBond)"
+      ],
+      "metadata": {
+        "id": "JshXLd1KadZF"
+      },
+      "execution_count": 6,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "risk_free_curve = ql.YieldTermStructureHandle(\n",
+        "    ql.FlatForward(0, calendar, 0.03, ql.Actual365Fixed())\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "wzLLgcQYahfg"
+      },
+      "execution_count": 7,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "helpers = [\n",
+        "    ql.UpfrontCdsHelper(\n",
+        "        quote,\n",
+        "        cds_spread,\n",
+        "        tenor,\n",
+        "        cds_settlement_days,\n",
+        "        calendar,\n",
+        "        ql.Quarterly,\n",
+        "        ql.ModifiedFollowing,\n",
+        "        ql.DateGeneration.CDS2015,\n",
+        "        ql.Actual360(),\n",
+        "        recovery_rate,\n",
+        "        risk_free_curve,\n",
+        "        upfront_settlement_days,\n",
+        "    )\n",
+        "    for tenor, quote in cds_data\n",
+        "]\n",
+        "\n",
+        "probability_curve = ql.PiecewiseFlatHazardRate(\n",
+        "    0, calendar, helpers, ql.Actual365Fixed()\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "QHa3kZ4jajmK"
+      },
+      "execution_count": 8,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "pd.DataFrame(\n",
+        "    [\n",
+        "        (date, rate, probability_curve.defaultProbability(date))\n",
+        "        for date, rate in probability_curve.nodes()\n",
+        "    ],\n",
+        "    columns=[\"date\", \"hazard rate\", \"default probability\"],\n",
+        ").style.format({\"hazard rate\": \"{:.2%}\", \"default probability\": \"{:.2%}\"})"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 269
+        },
+        "id": "6EfC-oiHaoeA",
+        "outputId": "e0091591-52a5-48fa-f3b5-e624a1e863d7"
+      },
+      "execution_count": 9,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "<pandas.io.formats.style.Styler at 0x7a348d0e7980>"
+            ],
+            "text/html": [
+              "<style type=\"text/css\">\n",
+              "</style>\n",
+              "<table id=\"T_151b2\" class=\"dataframe\">\n",
+              "  <thead>\n",
+              "    <tr>\n",
+              "      <th class=\"blank level0\" >&nbsp;</th>\n",
+              "      <th id=\"T_151b2_level0_col0\" class=\"col_heading level0 col0\" >date</th>\n",
+              "      <th id=\"T_151b2_level0_col1\" class=\"col_heading level0 col1\" >hazard rate</th>\n",
+              "      <th id=\"T_151b2_level0_col2\" class=\"col_heading level0 col2\" >default probability</th>\n",
+              "    </tr>\n",
+              "  </thead>\n",
+              "  <tbody>\n",
+              "    <tr>\n",
+              "      <th id=\"T_151b2_level0_row0\" class=\"row_heading level0 row0\" >0</th>\n",
+              "      <td id=\"T_151b2_row0_col0\" class=\"data row0 col0\" >August 27th, 2025</td>\n",
+              "      <td id=\"T_151b2_row0_col1\" class=\"data row0 col1\" >1.27%</td>\n",
+              "      <td id=\"T_151b2_row0_col2\" class=\"data row0 col2\" >0.00%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_151b2_level0_row1\" class=\"row_heading level0 row1\" >1</th>\n",
+              "      <td id=\"T_151b2_row1_col0\" class=\"data row1 col0\" >June 22nd, 2026</td>\n",
+              "      <td id=\"T_151b2_row1_col1\" class=\"data row1 col1\" >1.27%</td>\n",
+              "      <td id=\"T_151b2_row1_col2\" class=\"data row1 col2\" >1.03%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_151b2_level0_row2\" class=\"row_heading level0 row2\" >2</th>\n",
+              "      <td id=\"T_151b2_row2_col0\" class=\"data row2 col0\" >June 21st, 2027</td>\n",
+              "      <td id=\"T_151b2_row2_col1\" class=\"data row2 col1\" >1.15%</td>\n",
+              "      <td id=\"T_151b2_row2_col2\" class=\"data row2 col2\" >2.16%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_151b2_level0_row3\" class=\"row_heading level0 row3\" >3</th>\n",
+              "      <td id=\"T_151b2_row3_col0\" class=\"data row3 col0\" >June 20th, 2028</td>\n",
+              "      <td id=\"T_151b2_row3_col1\" class=\"data row3 col1\" >1.13%</td>\n",
+              "      <td id=\"T_151b2_row3_col2\" class=\"data row3 col2\" >3.27%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_151b2_level0_row4\" class=\"row_heading level0 row4\" >4</th>\n",
+              "      <td id=\"T_151b2_row4_col0\" class=\"data row4 col0\" >June 20th, 2030</td>\n",
+              "      <td id=\"T_151b2_row4_col1\" class=\"data row4 col1\" >2.08%</td>\n",
+              "      <td id=\"T_151b2_row4_col2\" class=\"data row4 col2\" >7.20%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_151b2_level0_row5\" class=\"row_heading level0 row5\" >5</th>\n",
+              "      <td id=\"T_151b2_row5_col0\" class=\"data row5 col0\" >June 21st, 2032</td>\n",
+              "      <td id=\"T_151b2_row5_col1\" class=\"data row5 col1\" >2.89%</td>\n",
+              "      <td id=\"T_151b2_row5_col2\" class=\"data row5 col2\" >12.43%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_151b2_level0_row6\" class=\"row_heading level0 row6\" >6</th>\n",
+              "      <td id=\"T_151b2_row6_col0\" class=\"data row6 col0\" >June 20th, 2035</td>\n",
+              "      <td id=\"T_151b2_row6_col1\" class=\"data row6 col1\" >2.02%</td>\n",
+              "      <td id=\"T_151b2_row6_col2\" class=\"data row6 col2\" >17.57%</td>\n",
+              "    </tr>\n",
+              "  </tbody>\n",
+              "</table>\n"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 9
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "today = ql.Date(19, ql.September, 2025)\n",
+        "ql.Settings.instance().evaluationDate = today"
+      ],
+      "metadata": {
+        "id": "-DvQPkdIartU"
+      },
+      "execution_count": 10,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "pd.DataFrame(\n",
+        "    [\n",
+        "        (date, rate, probability_curve.defaultProbability(date))\n",
+        "        for date, rate in probability_curve.nodes()\n",
+        "    ],\n",
+        "    columns=[\"date\", \"hazard rate\", \"default probability\"],\n",
+        ").style.format({\"hazard rate\": \"{:.2%}\", \"default probability\": \"{:.2%}\"})"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 269
+        },
+        "id": "VRnjuiXRa3Lj",
+        "outputId": "6822670b-a32b-45de-d09a-00c7d457d792"
+      },
+      "execution_count": 11,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "<pandas.io.formats.style.Styler at 0x7a346ed2f860>"
+            ],
+            "text/html": [
+              "<style type=\"text/css\">\n",
+              "</style>\n",
+              "<table id=\"T_99cdc\" class=\"dataframe\">\n",
+              "  <thead>\n",
+              "    <tr>\n",
+              "      <th class=\"blank level0\" >&nbsp;</th>\n",
+              "      <th id=\"T_99cdc_level0_col0\" class=\"col_heading level0 col0\" >date</th>\n",
+              "      <th id=\"T_99cdc_level0_col1\" class=\"col_heading level0 col1\" >hazard rate</th>\n",
+              "      <th id=\"T_99cdc_level0_col2\" class=\"col_heading level0 col2\" >default probability</th>\n",
+              "    </tr>\n",
+              "  </thead>\n",
+              "  <tbody>\n",
+              "    <tr>\n",
+              "      <th id=\"T_99cdc_level0_row0\" class=\"row_heading level0 row0\" >0</th>\n",
+              "      <td id=\"T_99cdc_row0_col0\" class=\"data row0 col0\" >September 19th, 2025</td>\n",
+              "      <td id=\"T_99cdc_row0_col1\" class=\"data row0 col1\" >1.23%</td>\n",
+              "      <td id=\"T_99cdc_row0_col2\" class=\"data row0 col2\" >0.00%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_99cdc_level0_row1\" class=\"row_heading level0 row1\" >1</th>\n",
+              "      <td id=\"T_99cdc_row1_col0\" class=\"data row1 col0\" >June 22nd, 2026</td>\n",
+              "      <td id=\"T_99cdc_row1_col1\" class=\"data row1 col1\" >1.23%</td>\n",
+              "      <td id=\"T_99cdc_row1_col2\" class=\"data row1 col2\" >0.93%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_99cdc_level0_row2\" class=\"row_heading level0 row2\" >2</th>\n",
+              "      <td id=\"T_99cdc_row2_col0\" class=\"data row2 col0\" >June 21st, 2027</td>\n",
+              "      <td id=\"T_99cdc_row2_col1\" class=\"data row2 col1\" >1.16%</td>\n",
+              "      <td id=\"T_99cdc_row2_col2\" class=\"data row2 col2\" >2.06%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_99cdc_level0_row3\" class=\"row_heading level0 row3\" >3</th>\n",
+              "      <td id=\"T_99cdc_row3_col0\" class=\"data row3 col0\" >June 20th, 2028</td>\n",
+              "      <td id=\"T_99cdc_row3_col1\" class=\"data row3 col1\" >1.14%</td>\n",
+              "      <td id=\"T_99cdc_row3_col2\" class=\"data row3 col2\" >3.17%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_99cdc_level0_row4\" class=\"row_heading level0 row4\" >4</th>\n",
+              "      <td id=\"T_99cdc_row4_col0\" class=\"data row4 col0\" >June 20th, 2030</td>\n",
+              "      <td id=\"T_99cdc_row4_col1\" class=\"data row4 col1\" >2.08%</td>\n",
+              "      <td id=\"T_99cdc_row4_col2\" class=\"data row4 col2\" >7.11%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_99cdc_level0_row5\" class=\"row_heading level0 row5\" >5</th>\n",
+              "      <td id=\"T_99cdc_row5_col0\" class=\"data row5 col0\" >June 21st, 2032</td>\n",
+              "      <td id=\"T_99cdc_row5_col1\" class=\"data row5 col1\" >2.89%</td>\n",
+              "      <td id=\"T_99cdc_row5_col2\" class=\"data row5 col2\" >12.33%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_99cdc_level0_row6\" class=\"row_heading level0 row6\" >6</th>\n",
+              "      <td id=\"T_99cdc_row6_col0\" class=\"data row6 col0\" >June 20th, 2035</td>\n",
+              "      <td id=\"T_99cdc_row6_col1\" class=\"data row6 col1\" >2.02%</td>\n",
+              "      <td id=\"T_99cdc_row6_col2\" class=\"data row6 col2\" >17.48%</td>\n",
+              "    </tr>\n",
+              "  </tbody>\n",
+              "</table>\n"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 11
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "today = ql.Date(22, ql.September, 2025)\n",
+        "ql.Settings.instance().evaluationDate = today"
+      ],
+      "metadata": {
+        "id": "fWcGJcfQa7tO"
+      },
+      "execution_count": 12,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "pd.DataFrame(\n",
+        "    [\n",
+        "        (date, rate, probability_curve.defaultProbability(date))\n",
+        "        for date, rate in probability_curve.nodes()\n",
+        "    ],\n",
+        "    columns=[\"date\", \"hazard rate\", \"default probability\"],\n",
+        ").style.format({\"hazard rate\": \"{:.2%}\", \"default probability\": \"{:.2%}\"})"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 269
+        },
+        "id": "gKA4ia4la44i",
+        "outputId": "630b8aa3-3656-4eb1-d60d-f23458be5e75"
+      },
+      "execution_count": 13,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "<pandas.io.formats.style.Styler at 0x7a346ed30620>"
+            ],
+            "text/html": [
+              "<style type=\"text/css\">\n",
+              "</style>\n",
+              "<table id=\"T_3561c\" class=\"dataframe\">\n",
+              "  <thead>\n",
+              "    <tr>\n",
+              "      <th class=\"blank level0\" >&nbsp;</th>\n",
+              "      <th id=\"T_3561c_level0_col0\" class=\"col_heading level0 col0\" >date</th>\n",
+              "      <th id=\"T_3561c_level0_col1\" class=\"col_heading level0 col1\" >hazard rate</th>\n",
+              "      <th id=\"T_3561c_level0_col2\" class=\"col_heading level0 col2\" >default probability</th>\n",
+              "    </tr>\n",
+              "  </thead>\n",
+              "  <tbody>\n",
+              "    <tr>\n",
+              "      <th id=\"T_3561c_level0_row0\" class=\"row_heading level0 row0\" >0</th>\n",
+              "      <td id=\"T_3561c_row0_col0\" class=\"data row0 col0\" >September 22nd, 2025</td>\n",
+              "      <td id=\"T_3561c_row0_col1\" class=\"data row0 col1\" >1.41%</td>\n",
+              "      <td id=\"T_3561c_row0_col2\" class=\"data row0 col2\" >0.00%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_3561c_level0_row1\" class=\"row_heading level0 row1\" >1</th>\n",
+              "      <td id=\"T_3561c_row1_col0\" class=\"data row1 col0\" >December 21st, 2026</td>\n",
+              "      <td id=\"T_3561c_row1_col1\" class=\"data row1 col1\" >1.41%</td>\n",
+              "      <td id=\"T_3561c_row1_col2\" class=\"data row1 col2\" >1.74%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_3561c_level0_row2\" class=\"row_heading level0 row2\" >2</th>\n",
+              "      <td id=\"T_3561c_row2_col0\" class=\"data row2 col0\" >December 20th, 2027</td>\n",
+              "      <td id=\"T_3561c_row2_col1\" class=\"data row2 col1\" >1.14%</td>\n",
+              "      <td id=\"T_3561c_row2_col2\" class=\"data row2 col2\" >2.85%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_3561c_level0_row3\" class=\"row_heading level0 row3\" >3</th>\n",
+              "      <td id=\"T_3561c_row3_col0\" class=\"data row3 col0\" >December 20th, 2028</td>\n",
+              "      <td id=\"T_3561c_row3_col1\" class=\"data row3 col1\" >1.12%</td>\n",
+              "      <td id=\"T_3561c_row3_col2\" class=\"data row3 col2\" >3.94%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_3561c_level0_row4\" class=\"row_heading level0 row4\" >4</th>\n",
+              "      <td id=\"T_3561c_row4_col0\" class=\"data row4 col0\" >December 20th, 2030</td>\n",
+              "      <td id=\"T_3561c_row4_col1\" class=\"data row4 col1\" >2.09%</td>\n",
+              "      <td id=\"T_3561c_row4_col2\" class=\"data row4 col2\" >7.87%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_3561c_level0_row5\" class=\"row_heading level0 row5\" >5</th>\n",
+              "      <td id=\"T_3561c_row5_col0\" class=\"data row5 col0\" >December 20th, 2032</td>\n",
+              "      <td id=\"T_3561c_row5_col1\" class=\"data row5 col1\" >2.92%</td>\n",
+              "      <td id=\"T_3561c_row5_col2\" class=\"data row5 col2\" >13.09%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_3561c_level0_row6\" class=\"row_heading level0 row6\" >6</th>\n",
+              "      <td id=\"T_3561c_row6_col0\" class=\"data row6 col0\" >December 20th, 2035</td>\n",
+              "      <td id=\"T_3561c_row6_col1\" class=\"data row6 col1\" >2.03%</td>\n",
+              "      <td id=\"T_3561c_row6_col2\" class=\"data row6 col2\" >18.22%</td>\n",
+              "    </tr>\n",
+              "  </tbody>\n",
+              "</table>\n"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 13
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "test_tenor, test_upfront = cds_data[2]\n",
+        "test_tenor, test_upfront"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "_7W85pNRa49w",
+        "outputId": "77fc2a31-eb28-41d1-f862-c24d4ea04ca1"
+      },
+      "execution_count": 14,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "(Period(\"3Y\"), -0.008)"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 14
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "trade_date = today\n",
+        "start_date = calendar.advance(trade_date, cds_settlement_days, ql.Days)\n",
+        "upfront_date = calendar.advance(\n",
+        "    trade_date, upfront_settlement_days, ql.Days\n",
+        ")\n",
+        "\n",
+        "maturity_date = ql.cdsMaturity(\n",
+        "    start_date, test_tenor, ql.DateGeneration.CDS2015\n",
+        ")\n",
+        "print(maturity_date)"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "rkCb5r0bbNdi",
+        "outputId": "e10176a2-19a7-46d7-9715-5b117268e0e1"
+      },
+      "execution_count": 15,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "December 20th, 2028\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "schedule = ql.MakeSchedule(\n",
+        "    effectiveDate=today,\n",
+        "    terminationDate=maturity_date,\n",
+        "    frequency=ql.Quarterly,\n",
+        "    calendar=calendar,\n",
+        "    rule=ql.DateGeneration.CDS2015,\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "BXzbfOiqbQhv"
+      },
+      "execution_count": 16,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "cds = ql.CreditDefaultSwap(\n",
+        "    ql.Protection.Buyer,\n",
+        "    10_000,\n",
+        "    test_upfront,\n",
+        "    100 * bps,\n",
+        "    schedule,\n",
+        "    ql.ModifiedFollowing,\n",
+        "    ql.Actual360(),\n",
+        "    True,\n",
+        "    True,\n",
+        "    start_date,\n",
+        "    upfront_date,\n",
+        "    ql.FaceValueClaim(),\n",
+        "    ql.Actual360(),\n",
+        "    True,\n",
+        "    trade_date,\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "y0s-L_I_bZ9-"
+      },
+      "execution_count": 17,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "probability_handle = ql.RelinkableDefaultProbabilityTermStructureHandle(\n",
+        "    probability_curve\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "V7ZDjyRGbdJD"
+      },
+      "execution_count": 18,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "engine = ql.MidPointCdsEngine(\n",
+        "    probability_handle,\n",
+        "    recovery_rate,\n",
+        "    risk_free_curve,\n",
+        ")\n",
+        "\n",
+        "cds.setPricingEngine(engine)"
+      ],
+      "metadata": {
+        "id": "wFK0sJ4sbfp-"
+      },
+      "execution_count": 21,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "cds.NPV()\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "SKCJf-_9bhl1",
+        "outputId": "57e5750b-cb85-446e-b500-b2d491e979f3"
+      },
+      "execution_count": 22,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "3.699818229563334e-13"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 22
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "cds.fairUpfront()"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "k9UKV2ofb40H",
+        "outputId": "83e2ab84-d432-4eac-d701-5f1b089e324c"
+      },
+      "execution_count": 23,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "-0.007999999999999964"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 23
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "helpers = [\n",
+        "    ql.UpfrontCdsHelper(\n",
+        "        quote,\n",
+        "        cds_spread,\n",
+        "        tenor,\n",
+        "        cds_settlement_days,\n",
+        "        calendar,\n",
+        "        ql.Quarterly,\n",
+        "        ql.ModifiedFollowing,\n",
+        "        ql.DateGeneration.CDS2015,\n",
+        "        ql.Actual360(),\n",
+        "        recovery_rate,\n",
+        "        risk_free_curve,\n",
+        "        upfront_settlement_days,\n",
+        "        model=ql.CreditDefaultSwap.ISDA,\n",
+        "    )\n",
+        "    for tenor, quote in cds_data\n",
+        "]\n",
+        "\n",
+        "probability_curve = ql.PiecewiseFlatHazardRate(\n",
+        "    0, calendar, helpers, ql.Actual365Fixed()\n",
+        ")\n"
+      ],
+      "metadata": {
+        "id": "jFMxwxgEdNln"
+      },
+      "execution_count": 24,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "pd.DataFrame(\n",
+        "    [\n",
+        "        (date, rate, probability_curve.defaultProbability(date))\n",
+        "        for date, rate in probability_curve.nodes()\n",
+        "    ],\n",
+        "    columns=[\"date\", \"hazard rate\", \"default probability\"],\n",
+        ").style.format({\"hazard rate\": \"{:.2%}\", \"default probability\": \"{:.2%}\"})"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 269
+        },
+        "id": "Qmh-_YlsdYW7",
+        "outputId": "ad5f419c-ee58-43b0-a536-5c7c82a8c13e"
+      },
+      "execution_count": 25,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "<pandas.io.formats.style.Styler at 0x7a346ed31d90>"
+            ],
+            "text/html": [
+              "<style type=\"text/css\">\n",
+              "</style>\n",
+              "<table id=\"T_a59ce\" class=\"dataframe\">\n",
+              "  <thead>\n",
+              "    <tr>\n",
+              "      <th class=\"blank level0\" >&nbsp;</th>\n",
+              "      <th id=\"T_a59ce_level0_col0\" class=\"col_heading level0 col0\" >date</th>\n",
+              "      <th id=\"T_a59ce_level0_col1\" class=\"col_heading level0 col1\" >hazard rate</th>\n",
+              "      <th id=\"T_a59ce_level0_col2\" class=\"col_heading level0 col2\" >default probability</th>\n",
+              "    </tr>\n",
+              "  </thead>\n",
+              "  <tbody>\n",
+              "    <tr>\n",
+              "      <th id=\"T_a59ce_level0_row0\" class=\"row_heading level0 row0\" >0</th>\n",
+              "      <td id=\"T_a59ce_row0_col0\" class=\"data row0 col0\" >September 22nd, 2025</td>\n",
+              "      <td id=\"T_a59ce_row0_col1\" class=\"data row0 col1\" >1.40%</td>\n",
+              "      <td id=\"T_a59ce_row0_col2\" class=\"data row0 col2\" >0.00%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_a59ce_level0_row1\" class=\"row_heading level0 row1\" >1</th>\n",
+              "      <td id=\"T_a59ce_row1_col0\" class=\"data row1 col0\" >December 22nd, 2026</td>\n",
+              "      <td id=\"T_a59ce_row1_col1\" class=\"data row1 col1\" >1.40%</td>\n",
+              "      <td id=\"T_a59ce_row1_col2\" class=\"data row1 col2\" >1.74%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_a59ce_level0_row2\" class=\"row_heading level0 row2\" >2</th>\n",
+              "      <td id=\"T_a59ce_row2_col0\" class=\"data row2 col0\" >December 21st, 2027</td>\n",
+              "      <td id=\"T_a59ce_row2_col1\" class=\"data row2 col1\" >1.14%</td>\n",
+              "      <td id=\"T_a59ce_row2_col2\" class=\"data row2 col2\" >2.85%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_a59ce_level0_row3\" class=\"row_heading level0 row3\" >3</th>\n",
+              "      <td id=\"T_a59ce_row3_col0\" class=\"data row3 col0\" >December 21st, 2028</td>\n",
+              "      <td id=\"T_a59ce_row3_col1\" class=\"data row3 col1\" >1.12%</td>\n",
+              "      <td id=\"T_a59ce_row3_col2\" class=\"data row3 col2\" >3.94%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_a59ce_level0_row4\" class=\"row_heading level0 row4\" >4</th>\n",
+              "      <td id=\"T_a59ce_row4_col0\" class=\"data row4 col0\" >December 21st, 2030</td>\n",
+              "      <td id=\"T_a59ce_row4_col1\" class=\"data row4 col1\" >2.09%</td>\n",
+              "      <td id=\"T_a59ce_row4_col2\" class=\"data row4 col2\" >7.87%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_a59ce_level0_row5\" class=\"row_heading level0 row5\" >5</th>\n",
+              "      <td id=\"T_a59ce_row5_col0\" class=\"data row5 col0\" >December 21st, 2032</td>\n",
+              "      <td id=\"T_a59ce_row5_col1\" class=\"data row5 col1\" >2.92%</td>\n",
+              "      <td id=\"T_a59ce_row5_col2\" class=\"data row5 col2\" >13.10%</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th id=\"T_a59ce_level0_row6\" class=\"row_heading level0 row6\" >6</th>\n",
+              "      <td id=\"T_a59ce_row6_col0\" class=\"data row6 col0\" >December 21st, 2035</td>\n",
+              "      <td id=\"T_a59ce_row6_col1\" class=\"data row6 col1\" >2.03%</td>\n",
+              "      <td id=\"T_a59ce_row6_col2\" class=\"data row6 col2\" >18.22%</td>\n",
+              "    </tr>\n",
+              "  </tbody>\n",
+              "</table>\n"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 25
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "probability_handle.linkTo(probability_curve)"
+      ],
+      "metadata": {
+        "id": "x-fefX6Ldcrm"
+      },
+      "execution_count": 26,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "cds.NPV()"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "iVbDTMqSdgjB",
+        "outputId": "11ea933d-e9ad-4f83-d378-8bef5a41ea00"
+      },
+      "execution_count": 27,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "-0.20866157093615761"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 27
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "engine = ql.IsdaCdsEngine(\n",
+        "    probability_handle,\n",
+        "    recovery_rate,\n",
+        "    risk_free_curve,\n",
+        ")\n"
+      ],
+      "metadata": {
+        "id": "mG4gzS6QdoBW"
+      },
+      "execution_count": 28,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "cds.setPricingEngine(engine)"
+      ],
+      "metadata": {
+        "id": "6qUEa0OTdsh4"
+      },
+      "execution_count": 29,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "cds.NPV()"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "koaZ3gL9dwMv",
+        "outputId": "b50935d3-8769-4470-d54f-b1eb6ed115b9"
+      },
+      "execution_count": 30,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "-2.5529578451255475e-13"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 30
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "cds.fairUpfront()"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "uzDp6EGcdyZ1",
+        "outputId": "549dbcf1-f1b9-462e-af7e-531c3959b1d7"
+      },
+      "execution_count": 31,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "-0.008000000000000026"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 31
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [],
+      "metadata": {
+        "id": "3-zqGYjtd0mH"
+      },
+      "execution_count": null,
+      "outputs": []
+    }
+  ]
+}
